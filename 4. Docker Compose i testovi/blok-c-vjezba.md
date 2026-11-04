@@ -6,17 +6,14 @@
 > - jednokratni servis `ollama-pull` koji preuzima model i završava,
 > - servis `open-webui` (web sučelje na `http://localhost:3000`),
 > - korisnički definiranu bridge mrežu `backend` na kojoj su svi servisi, umjesto host mreže; servis `llm` Ollamu traži po DNS imenu kontejnera: `OLLAMA_BASE_URL=http://ollama-server:11434`,
-> - `Dockerfile.test`: jednostavni Dockerfile čiji `CMD` pokreće pytest (postojeći unit testovi),
-> - servis `tests` u `compose.yaml` koji pokreće unit testove u kratkoživućem kontejneru,
 > - `compose.txt` s izlazom provjera iz koraka 8 i snimku zaslona Open WebUI-ja u opisu PR-a.
 >
 > **Kriteriji prihvaćanja** (svi moraju vrijediti, nastavnik ih provjerava u PR-u):
 > 1. Nakon `docker compose up -d`: `ollama-server` je `healthy`, `open-webui` radi, a `ollama-pull` je `Exited (0)`.
 > 2. `docker compose run --rm llm status` ispisuje `Ollama is running at http://ollama-server:11434`.
-> 3. `docker compose run --rm tests` završava s `7 passed` i izlaznim kodom `0`.
-> 4. `ollama-server` nema objavljen port: u `docker compose ps` stupac PORTS za njega prikazuje samo `11434/tcp`.
-> 5. Nakon `docker compose down` i ponovnog `docker compose up -d` model je i dalje na popisu `docker compose exec ollama-server ollama list` (volumen je preživio).
-> 6. Poruka završnog commita i naslov PR-a slijede Conventional Commits i povećavaju **minor** verziju.
+> 3. `ollama-server` nema objavljen port: u `docker compose ps` stupac PORTS za njega prikazuje samo `11434/tcp`.
+> 4. Nakon `docker compose down` i ponovnog `docker compose up -d` model je i dalje na popisu `docker compose exec ollama-server ollama list` (volumen je preživio).
+> 5. Poruka završnog commita i naslov PR-a slijede Conventional Commits i povećavaju **minor** verziju.
 >
 > **Predaja:** otvoren PR. Ne spajati ga sami; PR je predaja i ostaje otvoren za pregled.
 
@@ -28,20 +25,19 @@ Polazište je rezultat bloka B (grana `feature/compose`). Gotovo rješenje nalaz
 | 1. Servis `ollama-server`: dugoživući kontejner |
 | 2. Mreže: zadani bridge, zadana mreža projekta, korisnička mreža |
 | 3. Jednokratni servis `ollama-pull` i `depends_on` |
-| 4. Unit testovi u kontejneru: `Dockerfile.test` |
-| 5. Servis `tests` |
-| 6. Open WebUI |
-| 7. Volumeni: što preživi `down` |
-| 8. Provjere, commit i pull request |
-| 9. Pregled: DevOps datoteke u korijenu repozitorija |
+| 4. Open WebUI |
+| 5. Volumeni: što preživi `down` |
+| 6. Provjere, commit i pull request |
+| 7. Pregled: DevOps datoteke u korijenu repozitorija |
 
 ## 0. Grana i slike
 ```bash
 cd ~/praktikum-$(gh api user -q .login)
 git fetch origin
-git checkout -b feature/compose-ollama origin/feature/compose   # or origin/main if the block B PR is already merged
+git checkout main
+git merge feature/compose
+git checkout -b feature/compose-ollama
 ```
-Ako PR iz bloka B još nije spojen, PR iz ovog bloka otvaramo prema grani `feature/compose` (vidi korak 8).
 
 Slike su velike. Preuzeti ih **kod kuće, prije termina** (na nastavi samo provjeriti `docker images`):
 ```bash
@@ -191,76 +187,7 @@ Compose je pokrenuo backend, pričekao `healthcheck`, pustio `ollama-pull` da pr
 | Kako alat zna da je spreman | ne zna; ako ne radi, `status` javlja grešku | `depends_on` + `condition: service_healthy` (i `healthcheck`) |
 | Model | `ollama pull` ručno | servis `ollama-pull` |
 
-
-## 4. Unit testovi u kontejneru: `Dockerfile.test`
-Postojećih 7 testova (tjedni 2 i 3) su **unit testovi**: `requests.request` je zamijenjen lažnom funkcijom, pa provjeravaju naš kod izolirano i prolaze bez Ollame. Lokalno, u virtualnom okruženju:
-```bash
-python -m pytest -v        # 7 passed
-```
-Sada ih pokrećemo i u kontejneru, da rezultat ne ovisi o tome što je instalirano na čijem računalu. Testove pokrećemo **kad se kontejner pokrene** (`CMD`), a ne dok se slika gradi (`RUN`, kao faza `test` u tjednu 3): slika `praktikum-llm` ostaje bez pytesta, a rezultat testova je izlazni kod kontejnera.
-
-Pišemo ga kao jednostavni Dockerfile u jednoj fazi, kao `Dockerfile` iz bloka B. Nova datoteka `Dockerfile.test`:
-```dockerfile
-# Simple, single-stage image that runs the unit tests when the container STARTS.
-FROM python:3.13-alpine
-
-ENV PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONUNBUFFERED=1
-
-WORKDIR /app
-
-# Dependencies first: this layer is rebuilt only when the requirements change.
-COPY requirements.txt requirements-dev.txt ./
-RUN pip install --no-cache-dir -r requirements-dev.txt
-
-# Code and tests last: they change most often.
-COPY version.txt ollama_client.py llm.py ./
-COPY tests/ tests/
-
-# The exit code of the container is the exit code of pytest: 0 = all passed, 1 = a test failed.
-CMD ["python", "-m", "pytest", "-v"]
-```
-| | `Dockerfile` | `Dockerfile.test` |
-|---|---|---|
-| Ovisnosti | `requirements.txt` | `requirements-dev.txt` (+ `pytest`) |
-| Kopira `tests/` | ne | da |
-| Što radi kad se pokrene | `ENTRYPOINT ["python", "llm.py"]` | `CMD ["python", "-m", "pytest", "-v"]` |
-| Rezultat | ispis alata | izlazni kod pytesta |
-
-> **Paket.** Umjesto `requirements*.txt` i modula kopirati `pyproject.toml`, `version.txt` i `src/` pa `pip install ".[dev]"`; [gotova datoteka](docker-lab/paket/Dockerfile.test).
-
-## 5. Servis `tests`
-U `compose.yaml` dodati servis `tests`:
-```yaml
-  tests:
-    build:
-      context: .
-      dockerfile: Dockerfile.test  # simple single-stage image whose CMD runs pytest
-    image: praktikum-llm-tests
-    profiles: [test]               # not started by `docker compose up`, only by `docker compose run tests`
-```
-```bash
-docker compose run --rm --build tests; echo "exit code: $?"   # 7 passed, exit code 0
-docker compose ps -a                                         # no tests container: it is short-lived and removed
-```
-Servis nema `depends_on`, `networks` ni `environment`: unit testovi ne razgovaraju s Ollamom, pa im backend ne treba. Usporediti od nule:
-```bash
-docker compose down
-docker compose run --rm tests        # only the tests container starts; ollama-server stays down
-docker compose run --rm llm status   # the llm service starts the whole chain first (step 3)
-```
-Rezultat kratkoživućeg kontejnera je njegov **izlazni kod**. Isprobati da test padne: u `tests/test_version.py` privremeno zamijeniti očekivani `"0.0.0"` s `"0.0.1"` i ponoviti `docker compose run --rm --build tests; echo "exit code: $?"` (`1 failed, 6 passed`, izlazni kod `1`), pa vratiti datoteku (`git checkout tests/test_version.py`). Na izlaznom kodu će CI pipeline u tjednu 5 odlučiti je li build zelen.
-
-| Servis | Vrsta | Treba backend | Rezultat |
-|---|---|---|---|
-| `ollama-server` | dugoživući | – | radi dok ga ne zaustavimo (`healthy`) |
-| `ollama-pull` | jednokratni | `ollama-server` (`service_healthy`) | izlazni kod 0: model je preuzet |
-| `llm` | kratkoživući | `ollama-pull` (`service_completed_successfully`) | ispis alata |
-| `tests` | kratkoživući | ne | izlazni kod pytesta |
-
-**Primijetiti:** `docker compose build` (bez imena servisa) gradi samo servise koji nisu u profilima, a `llm` i `tests` jesu. Gradi se s `docker compose --profile cli --profile test build` ili, kao gore, `docker compose run --build`.
-
-## 6. Open WebUI
+## 4. Open WebUI
 [Open WebUI](https://docs.openwebui.com/) je web sučelje za razgovor s modelima, slično ChatGPT-u, koje razgovara s Ollamom preko istog REST API-ja kao naš alat.
 ```yaml
   open-webui:
@@ -289,7 +216,7 @@ Dva detalja s porta: `3000:8080` znači *port 3000 na hostu → port 8080 u kont
 
 Primijetiti da `ollama-server` i dalje nema `ports:`: preglednik razgovara s Open WebUI-jem, a Open WebUI s Ollamom unutar mreže `backend`.
 
-## 7. Volumeni: što preživi `down`
+## 5. Volumeni: što preživi `down`
 ```bash
 docker compose down                      # containers and the network are removed
 docker volume ls                         # praktikum_ollama-models and praktikum_open-webui-data are still there
@@ -303,12 +230,11 @@ docker compose exec ollama-server ollama list    # the model is still there: not
 
 `docker compose down -v` briše i imenovane volumene (model bi se preuzimao ponovno). Ne pokretati ga bez razloga.
 
-## 8. Provjere, commit i pull request
+## 6. Provjere, commit i pull request
 ```bash
 {
   echo "## up";       docker compose up -d >/dev/null 2>&1; docker compose ps -a --format '{{.Service}}: {{.Status}} {{.Ports}}'
   echo "## status";   docker compose run --rm llm status 2>/dev/null
-  echo "## tests";    out=$(docker compose run --rm --build tests 2>&1); echo "exit code: $?"; echo "$out" | tail -1
   echo "## persist";  docker compose down >/dev/null 2>&1; docker compose up -d >/dev/null 2>&1
                       docker compose exec ollama-server ollama list
 } | tee compose.txt
@@ -321,7 +247,7 @@ git add compose.yaml Dockerfile.test compose.txt
 git status                       # .env and .venv must NOT be listed
 git commit -m "<type>: add Ollama, Open WebUI and tests to Docker Compose"
 git push -u origin HEAD
-gh pr create --base feature/compose --title "<type>: add Ollama, Open WebUI and tests to Docker Compose" --body "Week 4, block C. Checks: see compose.txt"
+gh pr create --base main --title "<type>: add Ollama, Open WebUI and tests to Docker Compose" --body "Week 4, block C. Checks: see compose.txt"
 ```
 (`--base main` ako je PR iz bloka B već spojen.) Nakon `gh pr create` dodati snimku zaslona Open WebUI-ja u opis PR-a na GitHubu.
 
@@ -329,7 +255,7 @@ gh pr create --base feature/compose --title "<type>: add Ollama, Open WebUI and 
 
 Na kraju, da ne troši memoriju: `docker compose down` (volumeni ostaju za sljedeći put).
 
-## 9. Pregled: DevOps datoteke u korijenu repozitorija
+## 7. Pregled: DevOps datoteke u korijenu repozitorija
 Nakon četiri tjedna u korijenu `praktikum-<github-korisnik>` uz kod (`llm.py`, `ollama_client.py`, `tests/`) stoji niz datoteka koje ne mijenjaju što alat radi, nego **kako se gradi, testira, pokreće i objavljuje**. To su DevOps datoteke:
 
 | Datoteka | Čemu služi | Tko je čita | U gitu | U slici |
