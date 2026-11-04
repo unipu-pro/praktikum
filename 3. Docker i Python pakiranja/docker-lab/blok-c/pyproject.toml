@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "praktikum-llm"
+dynamic = ["version"]
+description = "Command line client for a local Ollama model (Praktikum: Razvojne operacije)."
+requires-python = ">=3.10"
+dependencies = [
+    "requests>=2.31",
+    "python-dotenv>=1.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8"]
+
+[project.scripts]
+llm = "praktikum_llm.cli:main"
+
+[tool.setuptools.dynamic]
+# release-please (week 1) bumps version.txt; the package version follows it.
+version = { file = "version.txt" }
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
