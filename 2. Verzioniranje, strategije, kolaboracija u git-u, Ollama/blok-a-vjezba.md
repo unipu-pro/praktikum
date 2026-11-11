@@ -17,7 +17,7 @@ Cilj: svaki student na svojoj grani doda jednu datoteku i jedan prazan commit, o
 ## 0. Priprema repozitorija (nositelj, prije termina)
 Repozitorij je prazan, samo s `README.md`, da grana `main` postoji i da se na nju može postaviti zaštita.
 ```bash
-ORG=unipu-praktikum-razvojne-operacije
+ORG=unipu-pro
 REPO=shared-collab
 TEAM=students            # team slug of the students in the organisation
 
@@ -48,7 +48,7 @@ Skriptu `add_contribution.sh` podijeliti studentima (repozitorij kolegija ili po
 ## 1. Kloniranje zajedničkog repozitorija
 ```bash
 cd ~
-gh repo clone unipu-praktikum-razvojne-operacije/shared-collab
+gh repo clone unipu-pro/shared-collab
 cd shared-collab
 git log --oneline          # one commit: "Initial commit"
 git branch -a              # local main + remote origin/main

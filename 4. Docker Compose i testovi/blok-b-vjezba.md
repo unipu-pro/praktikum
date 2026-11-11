@@ -112,7 +112,8 @@ services:
     environment:
       OLLAMA_BASE_URL: http://localhost:11434
       OLLAMA_MODEL: ${OLLAMA_MODEL:-llama3.2:1b}
-    profiles: [cli]              # not started by `docker compose up`, only by `docker compose run llm ...`
+    profiles:  # not started by `docker compose up`, only by `docker compose run llm ...`
+      - cli
 ```
 | Ključ | Značenje | Ekvivalent u `docker` naredbama |
 |---|---|---|
@@ -145,7 +146,9 @@ services:
     build:
       context: .
     image: praktikum-llm
-    entrypoint: ["sleep", "infinity"]   # keep the container running so we can look inside it
+    entrypoint:  # keep the container running so we can look inside it
+      - "sleep"
+      - "infinity"
 ```
 Da ne pišemo `-f` u svakoj naredbi, koristimo kraticu:
 ```bash
@@ -238,7 +241,9 @@ Isti volumen sada montiramo u **novi, prazni** `alpine` kontejner, koji nema ni 
     image: alpine:3.24
     volumes:
       - llm-data:/data:ro               # read-only: inspecting must not change the data
-    command: ["sleep", "infinity"]
+    command:
+      - "sleep"
+      - "infinity"
 ```
 ```bash
 dcs up -d data-inspect && dcs exec -it data-inspect ls -la /data/notes    # the file created in llm, read by alpine
@@ -306,7 +311,7 @@ gh pr create --base main --title "<type>: run the CLI with Docker Compose" --bod
 ## Česti problemi
 | Simptom | Rješenje |
 |---|---|
-| `Ollama is NOT running at http://localhost:11434` iz `docker compose run --rm llm status` | Docker Desktop: uključiti *Enable host networking* (korak 0). Ako ni tada ne radi (npr. Ollama u WSL-u, Docker Desktop u Windowsima), privremeno zamijeniti `network_mode: host` s `extra_hosts: ["host.docker.internal:host-gateway"]` i `OLLAMA_BASE_URL: http://host.docker.internal:11434`. U bloku C Ollama ionako prelazi u Compose. |
+| `Ollama is NOT running at http://localhost:11434` iz `docker compose run --rm llm status` | Docker Desktop: uključiti *Enable host networking* (korak 0). Ako ni tada ne radi (npr. Ollama u WSL-u, Docker Desktop u Windowsima), privremeno zamijeniti `network_mode: host` s `extra_hosts:` s elementom `- host.docker.internal:host-gateway` i `OLLAMA_BASE_URL: http://host.docker.internal:11434`. U bloku C Ollama ionako prelazi u Compose. |
 | `No services to build` | Servis `llm` je u profilu `cli`: `docker compose --profile cli build` ili `docker compose run --build llm ...` |
 | `validating compose.yaml: services.build ...` ili slična greška sheme | Uvlaka u YAML-u: `build:` i `volumes:` moraju biti uvučeni ispod imena servisa (2 razmaka više), a stavke `- ...` ispod `volumes:` |
 | `service ... declares mutually exclusive network_mode and networks` | Na host mreži nema `networks:`; ni `ports:` nema smisla (Compose ga tiho ignorira), jer kontejner koristi portove hosta izravno |

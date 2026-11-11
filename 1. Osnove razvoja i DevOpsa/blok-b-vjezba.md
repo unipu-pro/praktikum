@@ -136,7 +136,7 @@ Prijava i repozitorij:
 gh auth login            # GitHub.com → HTTPS → Login with a web browser
 gh auth setup-git        # git uses gh for authentication
 GITHUB_USERNAME=$(gh api user -q .login)
-gh repo create unipu-praktikum-razvojne-operacije/praktikum-$GITHUB_USERNAME --public --clone
+gh repo create unipu-pro/praktikum-$GITHUB_USERNAME --public --clone
 cd praktikum-$GITHUB_USERNAME
 ```
 Ako student nije prihvatio pozivnicu u organizaciju: `gh api user/memberships/orgs` ili prihvatiti na github.com.

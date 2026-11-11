@@ -21,13 +21,13 @@ Ishodi učenja koje tjedan pokriva: 1 (prepoznati koncepte i alate: Docker Compo
 ## Raspored bloka A (80 min)
 | Cjelina | Slajdovi | Okvirno |
 |---|---|---|
-| Naslov, ishod, sadržaj | 1–3 | 3 min |
-| Ponavljanje (Dockerfile, od koda do registra, SHA-256) | 4–7 | 15 min |
-| Docker Compose: kako i zašto | 8–13 | 19 min |
-| Umrežavanje | 14–18 | 16 min |
-| Volumeni | 19–21 | 11 min |
-| Dugoživući i kratkoživući kontejneri, ciljna arhitektura | 22–26 | 13 min |
-| Provjera razumijevanja | 27 | 3 min |
+| Naslov, sadržaj | 1–2 | 3 min |
+| Ponavljanje (Dockerfile, od koda do registra, SHA-256) | 3–6 | 15 min |
+| Docker Compose: kako i zašto | 7–12 | 19 min |
+| Umrežavanje | 13–17 | 16 min |
+| Volumeni | 18–20 | 11 min |
+| Dugoživući i kratkoživući kontejneri, ciljna arhitektura | 21–25 | 13 min |
+| Provjera razumijevanja | 26 | 3 min |
 
 ## Raspored bloka B (80 min)
 | Korak u [blok-b-vjezba.md](blok-b-vjezba.md) | Okvirno |

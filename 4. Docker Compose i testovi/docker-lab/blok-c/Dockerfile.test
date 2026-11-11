@@ -1,0 +1,20 @@
+# Simple, single-stage image that runs the unit tests when the container STARTS.
+#   docker build -f Dockerfile.test -t praktikum-llm-tests .
+#   docker run --rm praktikum-llm-tests
+FROM python:3.13-alpine
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1
+
+WORKDIR /app
+
+# Dependencies first: this layer is rebuilt only when the requirements change.
+COPY requirements.txt requirements-dev.txt ./
+RUN pip install --no-cache-dir -r requirements-dev.txt
+
+# Code and tests last: they change most often.
+COPY version.txt ollama_client.py llm.py ./
+COPY tests/ tests/
+
+# The exit code of the container is the exit code of pytest: 0 = all passed, 1 = a test failed.
+CMD ["python", "-m", "pytest", "-v"]

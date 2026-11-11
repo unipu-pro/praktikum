@@ -1,0 +1,90 @@
+# Week 4, block C: Ollama, Open WebUI, the CLI and its tests in one Compose project.
+# All services share the user-defined bridge network `backend`, so they reach each other
+# by service name (Docker's embedded DNS): http://ollama-server:11434.
+#   docker compose up -d                   -> long-lived: ollama-server, open-webui (+ one-shot ollama-pull)
+#   docker compose run --rm tests          -> short-lived: unit tests, exit code is the result
+#   docker compose run --rm llm ask "..."  -> short-lived: the CLI against the Ollama container
+#   docker compose down                    -> remove containers and the network (volumes stay)
+name: praktikum
+
+services:
+  ollama-server:
+    image: ollama/ollama:0.40.13
+    volumes:
+      - ollama-models:/root/.ollama      # named volume: models survive `down` and image upgrades
+    networks:
+      - backend
+    # No `ports:`: only containers on `backend` can reach Ollama, the host cannot.
+    healthcheck:
+      test:  # the image has no curl; the ollama CLI asks the server
+        - "CMD"
+        - "ollama"
+        - "list"
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 5s
+    restart: unless-stopped
+
+  ollama-pull:
+    # One-shot job: same image, but only the CLI, which pulls the model into ollama-server and exits.
+    image: ollama/ollama:0.40.13
+    entrypoint:
+      - "ollama"
+      - "pull"
+      - "${OLLAMA_MODEL:-llama3.2:1b}"
+    environment:
+      OLLAMA_HOST: http://ollama-server:11434   # where the ollama CLI sends its requests
+    networks:
+      - backend
+    depends_on:
+      ollama-server:
+        condition: service_healthy
+    restart: "no"
+
+  open-webui:
+    image: ghcr.io/open-webui/open-webui:v0.7.2
+    ports:
+      - "127.0.0.1:3000:8080"            # http://localhost:3000, only from this machine
+    environment:
+      OLLAMA_BASE_URL: http://ollama-server:11434
+      WEBUI_AUTH: "False"                # single-user local setup; never on a shared server
+    volumes:
+      - open-webui-data:/app/backend/data
+    networks:
+      - backend
+    depends_on:
+      ollama-server:
+        condition: service_healthy
+    restart: unless-stopped
+
+  llm:
+    build:
+      context: .
+    image: praktikum-llm
+    environment:
+      OLLAMA_BASE_URL: http://ollama-server:11434
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-llama3.2:1b}
+    networks:
+      - backend
+    depends_on:
+      ollama-pull:
+        condition: service_completed_successfully
+    profiles:
+      - cli
+
+  tests:
+    # Unit tests only: no backend needed, so no depends_on, networks or environment.
+    build:
+      context: .
+      dockerfile: Dockerfile.test  # simple single-stage image whose CMD runs pytest
+    image: praktikum-llm-tests
+    profiles:
+      - test
+
+networks:
+  backend:                               # user-defined bridge: DNS by service name, isolated from other projects
+
+volumes:
+  ollama-models:
+  open-webui-data:

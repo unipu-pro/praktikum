@@ -1,0 +1,18 @@
+# Week 4, block B: the CLI as a Compose service.
+# It uses the HOST network: inside the container localhost:11434 is the Ollama
+# that runs on your machine (from week 2), exactly like `docker run --network host`.
+#   docker compose run --rm llm status     -> short-lived: one command, then the container is removed
+# Tests (Dockerfile.test, the tests service) are added in block C.
+name: praktikum
+
+services:
+  llm:
+    build:
+      context: .
+    image: praktikum-llm
+    network_mode: host
+    environment:
+      OLLAMA_BASE_URL: http://localhost:11434
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-llama3.2:1b}
+    profiles:  # not started by `docker compose up`, only by `docker compose run llm ...`
+      - cli

@@ -57,7 +57,10 @@ Na početak sekcije `services:` u `compose.yaml` dodati:
       - ollama-models:/root/.ollama      # named volume: models survive `down` and image upgrades
     # No `ports:`: only containers on the same network can reach Ollama, the host cannot.
     healthcheck:
-      test: ["CMD", "ollama", "list"]    # the image has no curl; the ollama CLI asks the server
+      test:  # the image has no curl; the ollama CLI asks the server
+        - "CMD"
+        - "ollama"
+        - "list"
       interval: 5s
       timeout: 5s
       retries: 12
@@ -111,7 +114,8 @@ networks:
 ```
 i u **svaki** servis (`ollama-server`, `llm`) dodati:
 ```yaml
-    networks: [backend]
+    networks:
+      - backend
 ```
 ```bash
 docker compose down                      # removes praktikum_default
@@ -123,7 +127,7 @@ docker network ls                        # praktikum_backend
 | host | `network_mode: host` | ne (sve je `localhost`) | alat treba servis koji radi na hostu (blok B) |
 | zadani bridge | `network_mode: bridge` | ne | praktički nikad u Composeu |
 | zadana mreža projekta | ništa | da | mali projekti |
-| korisnička mreža | `networks: [backend]` + `networks:` na kraju | da | izričito: tko s kim smije razgovarati |
+| korisnička mreža | `networks:` s `- backend` u servisu + `networks:` na kraju | da | izričito: tko s kim smije razgovarati |
 
 ## 3. Jednokratni servis `ollama-pull` i `depends_on`
 Model treba preuzeti jednom, prije nego ga alat koristi. To je posao za **jednokratni** kontejner: ista slika `ollama/ollama`, ali samo CLI, koji kaže poslužitelju `ollama-server` da preuzme model i završi.
@@ -131,10 +135,14 @@ Model treba preuzeti jednom, prije nego ga alat koristi. To je posao za **jednok
   ollama-pull:
     # One-shot job: same image, but only the CLI, which pulls the model into ollama-server and exits.
     image: ollama/ollama:0.40.13
-    entrypoint: ["ollama", "pull", "${OLLAMA_MODEL:-llama3.2:1b}"]
+    entrypoint:
+      - "ollama"
+      - "pull"
+      - "${OLLAMA_MODEL:-llama3.2:1b}"
     environment:
       OLLAMA_HOST: http://ollama-server:11434   # where the ollama CLI sends its requests
-    networks: [backend]
+    networks:
+      - backend
     depends_on:
       ollama-server:
         condition: service_healthy
@@ -199,7 +207,8 @@ Compose je pokrenuo backend, pričekao `healthcheck`, pustio `ollama-pull` da pr
       WEBUI_AUTH: "False"                # single-user local setup; never on a shared server
     volumes:
       - open-webui-data:/app/backend/data
-    networks: [backend]
+    networks:
+      - backend
     depends_on:
       ollama-server:
         condition: service_healthy
@@ -284,7 +293,7 @@ U tjednu 5 u `.github/workflows/` dolazi novi workflow koji pokreće `docker com
 ## Česti problemi
 | Simptom | Rješenje |
 |---|---|
-| `Ollama is NOT running at http://ollama-server:11434` | Servis `llm` nije na istoj mreži kao `ollama-server`: ukloniti `network_mode`, dodati `networks: [backend]` |
+| `Ollama is NOT running at http://ollama-server:11434` | Servis `llm` nije na istoj mreži kao `ollama-server`: ukloniti `network_mode`, dodati `networks:` s `- backend` |
 | `ERROR: file or directory not found: tests` ili `no tests ran` | `Dockerfile.test` nije kopirao testove: `COPY tests/ tests/` |
 | `No services to build` | `llm` i `tests` su u profilima: `docker compose --profile cli --profile test build` ili `docker compose run --build <servis>` |
 | `service "ollama-pull" didn't complete successfully: exit 1` | `docker compose logs ollama-pull`. Najčešće nema mreže prema registru modela ili je ime modela krivo (`OLLAMA_MODEL`) |

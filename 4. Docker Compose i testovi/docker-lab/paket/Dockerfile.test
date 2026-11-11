@@ -1,0 +1,18 @@
+# Simple, single-stage image that runs the unit tests when the container STARTS.
+# (package layout from week 3, block C: src/praktikum_llm + pyproject.toml).
+FROM python:3.13-alpine
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1
+
+WORKDIR /app
+
+# Install the package with its [dev] extras (pytest); tests then import the installed package.
+COPY pyproject.toml version.txt ./
+COPY src/ src/
+RUN pip install --no-cache-dir ".[dev]"
+
+COPY tests/ tests/
+
+# The exit code of the container is the exit code of pytest: 0 = all passed, 1 = a test failed.
+CMD ["python", "-m", "pytest", "-v"]
