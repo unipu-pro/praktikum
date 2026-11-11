@@ -7,7 +7,7 @@ Vježbe imaju uvod i tri dijela. Svaki dio završava pull requestom u osobnom re
 | Uvod | `feature/actions-hello` | pregled datoteka u repozitoriju, Open WebUI `v0.13.3` | (isti PR kao dio 1) |
 | 1. Anatomija workflowa | `feature/actions-hello` | `.github/workflows/hello.yml` | spojen u `main` (fast-forward) |
 | 2. Python paket, TestPyPI i ghcr.io | `feature/pypi` | `pyproject.toml`, `.github/workflows/publish.yml` | spojen u `main`, paket na TestPyPI, slika na `ghcr.io` |
-| 3. Python CI i Docker | `feature/ci` | `Dockerfile.test`, `.github/workflows/ci.yml` | **otvoren**, sve provjere zelene |
+| 3. Python CI i Docker | `feature/ci` | `Dockerfile.test`, `.github/workflows/ci.yml`, ruleset za `main` | **otvoren**, sve provjere zelene, merge moguć tek uz zelen CI |
 
 PR-ove iz dijelova 1 i 2 spajamo sami jer GitHub pokreće ručne (`workflow_dispatch`) workflowe samo ako je datoteka workflowa na zadanoj grani (`main`). Spajamo kao i dosad: fast-forward kad je moguće (`git merge` lokalno pa `git push`). PR iz dijela 3 je predaja i ostaje otvoren za pregled.
 
@@ -602,14 +602,15 @@ Ista slika iz registra bit će polazište za isporuku na poslužitelj (tema 7): 
 ## 3. Python CI, Docker build i testovi
 
 > ### 🎯 Ishod dijela 3
-> U osobnom repozitoriju je **otvoren** pull request s grane `feature/ci` koji sadrži `Dockerfile.test` i workflow `.github/workflows/ci.yml`. Na PR-u su zelene obje provjere: `test` i `docker`.
+> U osobnom repozitoriju je **otvoren** pull request s grane `feature/ci` koji sadrži `Dockerfile.test` i workflow `.github/workflows/ci.yml`. Na PR-u su zelene obje provjere: `test` i `docker`. Grana `main` je zaštićena: u nju se ulazi samo pull requestom, i to tek kad su `test` i `docker` zeleni.
 >
 > **Kriteriji prihvaćanja:**
-> 1. `ci` se pokreće na svakom pull requestu i na pushu u `main`.
+> 1. `ci` se pokreće kad se pull request otvori (`opened`) i na svaki novi push u njegovu granu (`synchronize`).
 > 2. Job `test` pokreće testove na Pythonu 3.13 i uploada artefakt `pytest-report` s JUnit izvještajem.
 > 3. Job `docker` počinje tek kad je job `test` zelen, gradi sliku `praktikum-llm` akcijom `docker/build-push-action`, provjerava `--version` iz slike prema `version.txt` i pokreće testove u slici iz `Dockerfile.test`.
 > 4. U povijesti PR-a postoji barem jedno **crveno** pokretanje (namjerno pokvaren test, korak 3.4) i nakon njega zeleno.
 > 5. Poruka završnog commita i naslov PR-a slijede Conventional Commits i **ne povećavaju** verziju.
+> 6. Na `main` je aktivan ruleset `protect-main`: obavezan pull request i obavezne provjere `test` i `docker`; izravan `git push` u `main` je odbijen (korak 3.5).
 >
 > **Predaja:** otvoren PR. Ne spajati ga sami; PR je predaja i ostaje otvoren za pregled.
 
@@ -651,9 +652,9 @@ name: ci
 
 on:
   pull_request:
-  push:
-    branches:
-      - main
+    types:
+      - opened                           # the PR is created
+      - synchronize                      # a new commit is pushed to the PR branch
 
 permissions:
   contents: read
@@ -685,6 +686,7 @@ jobs:
 ```
 | Ključ | Što radi |
 |---|---|
+| `pull_request` s `types:` | samo dva događaja PR-a: otvaranje i novi commit; to su upravo trenuci kad treba provjeriti kod koji ide u `main` |
 | `python-version: "3.13"` | ista verzija kao u slici (`python:3.13-alpine`): runner i kontejner testiraju isti Python |
 | `cache: pip` | preuzeti wheelovi se čuvaju između pokretanja; ključ je sažetak `requirements*.txt` |
 | `if: always()` | izvještaj se uploada i kad testovi padnu, upravo onda nam treba |
@@ -768,11 +770,80 @@ git revert --no-edit HEAD
 git push
 gh pr checks --watch                     # green again
 ```
-Primijetiti: `docker` se uopće nije pokrenuo (`needs: test`), a artefakt `pytest-report` je ipak tu (`if: always()`). PR s crvenom provjerom ne bi smio u `main`; na GitHubu se to uključi u *Settings → Rules → Rulesets* (obavezne provjere `test` i `docker`).
+Primijetiti: `docker` se uopće nije pokrenuo (`needs: test`), a artefakt `pytest-report` je ipak tu (`if: always()`). PR s crvenom provjerom ne bi smio u `main`, ali GitHub ga zasad ne sprječava: gumb *Merge* je i dalje zelen. To popravljamo u zadnjem koraku.
 
 **Poruka završnog commita i naslov PR-a.** CI ne mijenja ponašanje alata, pa ne povećava verziju; odgovarajući tip pronađite u [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/#summary) (u naredbama piše `<type>`). Naslov PR-a se mijenja s `gh pr edit --title "..."`.
 
-**Predaja dijela 3 (praktični zadatak 5):** otvoren PR iz `feature/ci` sa zelenim provjerama i crvenim pokretanjem u povijesti (kriteriji 1–5). PR ne spajati sami.
+### 3.5 Merge tek nakon zelenog CI-a
+Posljednji zadatak: `main` mora prihvaćati samo kod koji je prošao CI. To nije dio workflowa nego **postavka repozitorija** (ruleset).
+
+Na GitHubu: *Settings → Rules → Rulesets → New ruleset → New branch ruleset*:
+
+| Polje | Vrijednost |
+|---|---|
+| Ruleset Name | `protect-main` |
+| Enforcement status | `Active` |
+| Bypass list | *Add bypass → Repository admin*, način *For pull requests only* (zbog release PR-a, vidi ispod) |
+| Target branches | *Add target → Include default branch* (`main`) |
+| Restrict deletions | uključeno |
+| Require a pull request before merging | uključeno; *Required approvals*: `0` (radite sami) |
+| Require status checks to pass | uključeno; *Add checks* → `test` i `docker` (izvor: GitHub Actions) |
+| Block force pushes | uključeno |
+
+*Create.* Provjera se u popisu nudi tek kad se barem jednom izvela na repozitoriju, zato ovaj korak dolazi nakon 3.2 do 3.4. Ime provjere je ime joba (`test`, `docker`), a ne ime workflowa (`ci`).
+
+Isto iz terminala, ako vam je draže (ruleset kao JSON prema GitHub API-ju):
+```bash
+REPO=$(gh repo view --json nameWithOwner -q .nameWithOwner)
+gh api -X POST "repos/$REPO/rulesets" --input - <<'EOF'
+{
+  "name": "protect-main",
+  "target": "branch",
+  "enforcement": "active",
+  "bypass_actors": [{"actor_id": 5, "actor_type": "RepositoryRole", "bypass_mode": "pull_request"}],
+  "conditions": {"ref_name": {"include": ["~DEFAULT_BRANCH"], "exclude": []}},
+  "rules": [
+    {"type": "deletion"},
+    {"type": "non_fast_forward"},
+    {"type": "pull_request", "parameters": {
+      "required_approving_review_count": 0,
+      "dismiss_stale_reviews_on_push": false,
+      "require_code_owner_review": false,
+      "require_last_push_approval": false,
+      "required_review_thread_resolution": false}},
+    {"type": "required_status_checks", "parameters": {
+      "strict_required_status_checks_policy": false,
+      "required_status_checks": [{"context": "test"}, {"context": "docker"}]}}
+  ]
+}
+EOF
+gh api "repos/$REPO/rulesets" -q '.[].name'          # protect-main
+```
+
+**Provjera 1: izravan push u `main` je odbijen.**
+```bash
+git checkout main && git pull
+git commit --allow-empty -m "chore: try to skip the pull request"
+git push                                 # rejected: GH013 Repository rule violations, changes must be made through a pull request
+git reset --hard origin/main             # throw the local commit away
+```
+
+**Provjera 2: crveni PR se ne može spojiti.** Na grani `feature/ci` ponoviti namjerno pokvaren test iz koraka 3.4:
+```bash
+git checkout feature/ci
+git commit -am "test: break a test on purpose (again)"
+git push                                 # synchronize -> ci runs
+gh pr checks --watch                     # test fails, docker is skipped
+gh pr view --json mergeStateStatus -q .mergeStateStatus   # BLOCKED
+git revert --no-edit HEAD && git push
+gh pr checks --watch                     # green again
+gh pr view --json mergeStateStatus -q .mergeStateStatus   # CLEAN
+```
+Na stranici PR-a uz `test` i `docker` sada piše *Required*, a gumb *Merge* je onemogućen dok obje provjere nisu zelene.
+
+Od sada se u `main` ulazi samo kroz PR: lokalni `git merge` + `git push` u `main` (kao u dijelovima 1 i 2) više ne prolazi. PR se spaja na GitHubu ili s `gh pr merge`, i to tek kad je CI zelen. Pazite na release-please: njegov release PR otvara `GITHUB_TOKEN`, a događaji koje stvori `GITHUB_TOKEN` ne pokreću nove workflowe. Na release PR-u `ci` zato ne krene i obavezne provjere ostaju *Expected*. Zato je u rulesetu uloga *Repository admin* (vi) na *Bypass list* u načinu *For pull requests only*: release PR spajate s *Merge without waiting for requirements to be met*, a izravan push u `main` i dalje je odbijen.
+
+**Predaja dijela 3 (praktični zadatak 5):** otvoren PR iz `feature/ci` sa zelenim provjerama i crvenim pokretanjima u povijesti, te aktivan ruleset `protect-main` (kriteriji 1–6). PR ne spajati sami.
 
 ---
 
@@ -795,6 +866,9 @@ Primijetiti: `docker` se uopće nije pokrenuo (`needs: test`), a artefakt `pytes
 | `verify`: `No matching distribution found` | TestPyPI treba malo vremena; petlja pokušava 6 puta. Ako i dalje ne prolazi, provjeriti ime i verziju na stranici paketa |
 | `llm --version` nakon `pip install` ispisuje `llm 0.0.0` | `read_version()` nije zamijenjen (korak 2.3), ili je instalirana starija verzija s TestPyPI-ja |
 | Job `docker`: `ERROR: failed to read dockerfile: open Dockerfile.test` | `Dockerfile.test` nije commitan |
+| U rulesetu se pod *Add checks* ne nude `test` i `docker` | Provjere se nude tek nakon što su se barem jednom izvele: prvo korak 3.2 do 3.4, zatim ruleset. Ime upisati točno kao ime joba |
+| PR stoji na *Expected — Waiting for status to be reported* | Obavezna provjera se nikad nije pokrenula za taj commit: `ci` se pokreće samo na `opened` i `synchronize`, pa nakon `reopened` treba novi push (ili *Re-run jobs*); ili se ime provjere u rulesetu ne poklapa s imenom joba |
+| `git push` u `main`: `GH013: Repository rule violations found` | Očekivano nakon koraka 3.5: promjene idu kroz PR |
 | Job `docker` je *skipped* | Job `test` nije zelen (`needs: test`) |
 | Open WebUI nakon nadogradnje ne starta, u logu greška migracije | `docker compose logs open-webui`; povratak: `docker compose down`, `docker volume rm praktikum_open-webui-data`, raspakirati sigurnosnu kopiju u novi volumen i vratiti tag `v0.7.2` |
 | Previše potrošenih minuta | `paths:` filtri, cache; svaki job se naplaćuje zaokruženo na cijelu minutu |

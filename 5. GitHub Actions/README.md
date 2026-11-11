@@ -32,7 +32,7 @@ Ishodi učenja koje tjedan pokriva: 1 (prepoznati koncepte i alate: CI/CD, GitHu
 | 0b. Open WebUI: pregled zadnjih slika i nadogradnja na `v0.13.3` | 7 min |
 | 1. Anatomija workflowa: hello world, kontekst, izlazi, PR, spajanje, `workflow_dispatch` | 20 min |
 | 2. Python paket, trusted publisher na TestPyPI, `publish.yml` (TestPyPI i `ghcr.io`), objava i provjera | 30 min |
-| 3. `Dockerfile.test`, `ci.yml` (testovi, Docker), crveno pa zeleno | 25 min |
+| 3. `Dockerfile.test`, `ci.yml` (testovi, Docker), crveno pa zeleno, ruleset: merge tek uz zelen CI | 25 min |
 
 ## Priprema
 - **Studenti, prije termina:**
@@ -44,6 +44,6 @@ Ishodi učenja koje tjedan pokriva: 1 (prepoznati koncepte i alate: CI/CD, GitHu
 ## Predaja (praktični zadatak 5)
 - Dio 1: spojen PR iz `feature/actions-hello`; uspješna pokretanja `hello` za `push`, `pull_request` i `workflow_dispatch`.
 - Dio 2: spojen PR iz `feature/pypi`; uspješno pokretanje `publish` (`build`, `publish`, `image`, `verify`), paket na TestPyPI-ju i slika na `ghcr.io`.
-- Dio 3: **otvoren** PR iz `feature/ci` sa zelenim provjerama `test` i `docker` te crvenim pokretanjem u povijesti. Taj PR ne spajati sami.
+- Dio 3: **otvoren** PR iz `feature/ci` sa zelenim provjerama `test` i `docker` te crvenim pokretanjima u povijesti; aktivan ruleset `protect-main` (obavezan PR, obavezne provjere `test` i `docker`). Taj PR ne spajati sami.
 
 PR-ovi iz dijelova 1 i 2 se spajaju jer `workflow_dispatch` radi samo s datotekom workflowa na zadanoj grani.
