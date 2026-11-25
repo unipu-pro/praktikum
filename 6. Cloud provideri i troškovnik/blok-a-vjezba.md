@@ -6,7 +6,7 @@ U tjednu 5 napisali smo prve workflowe (`hello.yml`, `ci.yml`). Danas ih brišem
 |---|---|---|---|
 | `ci.yml` | novi PR i novi commit u PR-u (`opened`, `synchronize`) | `test-module`, `test-container`, `build-image` | `:<ime grane>`, npr. `:feature-cicd` |
 | `deploy.yml` | `push` na granu `dev` i poziv iz drugog workflowa (`workflow_call`) | `build-image`, `deploy` (zasad rezervirano mjesto) | `:dev` |
-| `release.yml` | tag `v*.*.*` i poziv iz `release_please.yml` | `build-image`, `call-deploy` | `:v1.3.0`, `:latest`, `:<SHA commita>` |
+| `release.yml` | samo poziv iz `release_please.yml` (`workflow_call`) kad release-please stvori izdanje | `build-image`, `call-deploy` | `:v1.3.0`, `:latest`, `:<SHA commita>` |
 
 ![cicd-workflows](cicd-workflows.png)
 
@@ -200,7 +200,7 @@ Na koji se poslužitelj isporučuje ne piše u workflowu, nego u **okruženju** 
 | Okruženje | *Deployment branches and tags* | *Environment variables* |
 |---|---|---|
 | `dev` | *Selected branches and tags* → grana `dev` | `DEPLOY_HOST` = `praktikum-dev` |
-| `prod` | *Selected branches and tags* → grana `main` i tag `v*.*.*` | `DEPLOY_HOST` = `praktikum-prod` |
+| `prod` | *Selected branches and tags* → grana `main` | `DEPLOY_HOST` = `praktikum-prod` |
 
 `DEPLOY_HOST` je zasad samo ime; sljedeći tjedan postaje adresa VM-a na GCP-u. Pravila grana i tagova su zaštita: job koji traži okruženje `prod` s bilo koje druge grane GitHub odbije prije nego što počne. Zašto `prod` dopušta i granu `main`, vidjet ćemo u koraku 3.
 
@@ -235,8 +235,9 @@ permissions:
 
 jobs:
   build-image:
-    # Inside a called workflow the github context belongs to the CALLER: when release.yml calls us after a tag push,
-    # github.event_name is "push" here too. The ref tells the two cases apart: refs/heads/dev vs refs/tags/v1.3.0.
+    # Inside a called workflow the github context belongs to the CALLER: when release_please.yml (push to main) calls
+    # release.yml, which calls us, github.event_name is "push" here too. The ref tells the two cases apart:
+    # refs/heads/dev vs refs/heads/main.
     if: github.ref == 'refs/heads/dev'
     runs-on: ubuntu-latest
     outputs:
@@ -280,9 +281,6 @@ jobs:
     runs-on: ubuntu-latest
     environment:
       name: ${{ inputs.environment || 'dev' }}   # push to dev -> no inputs -> dev
-    concurrency:
-      group: deploy-${{ inputs.environment || 'dev' }}
-      cancel-in-progress: false                # never stop a deployment halfway; queue the next one
     steps:
       - name: Deploy (placeholder, week 7 replaces it)
         env:
@@ -301,12 +299,11 @@ jobs:
 | Mjesto | Zašto |
 |---|---|
 | `on: push: branches: - dev` + `on: workflow_call` | isti workflow pokreće push na `dev` i poziv iz `release.yml`; `workflow_call` ima vlastite ulaze (`environment`, `image-tag`) |
-| `if: github.ref == 'refs/heads/dev'` na `build-image` | u pozvanom workflowu kontekst `github` pripada **pozivatelju**: kad `release.yml` (pokrenut tagom) pozove `deploy.yml`, `github.event_name` je i ovdje `push`. Razlikuje ih `github.ref`: grana `dev` ili tag |
+| `if: github.ref == 'refs/heads/dev'` na `build-image` | u pozvanom workflowu kontekst `github` pripada **pozivatelju**: kad `release_please.yml` (push na `main`) preko `release.yml` pozove `deploy.yml`, `github.event_name` je i ovdje `push`. Razlikuje ih `github.ref`: grana `dev` ili `main` |
 | `cache-to: type=inline` | slika `:dev` sama nosi podatke o cacheu, pa iz nje čitaju `ci.yml`, `release.yml` i sljedeći push na `dev` |
 | `if: ${{ !failure() && !cancelled() }}` na `deploy` | zadani uvjet je `success()`: kad je `build-image` preskočen (poziv iz `release.yml`), bez ovoga bi se preskočio i `deploy` |
 | `environment: name: ${{ inputs.environment \|\| 'dev' }}` | push na `dev` nema ulaza, pa je okruženje `dev`; poziv šalje `prod` |
 | `vars.DEPLOY_HOST` | varijabla okruženja iz koraka 2.1; job je vidi jer navodi `environment` |
-| `concurrency` | dvije isporuke u isto okruženje čekaju jedna drugu, a započeta se ne prekida |
 
 Job `deploy` je rezervirano mjesto: provjeri da je `DEPLOY_HOST` postavljen i ispiše što bi isporučio. Tjedan 7 ga zamjenjuje stvarnom isporukom preko SSH-a.
 
@@ -333,19 +330,14 @@ Sada ponovno pokrenuti `ci` na PR-u (*Actions → ci → Re-run all jobs* ili `g
 ### 3.1 Workflow i most iz `release_please.yml`
 Napraviti `.github/workflows/release.yml`:
 ```yaml
-# Week 6: release an image when a version tag (v1.3.0) appears, then deploy it to prod.
-#   build-image   builds the image of the tagged commit and pushes three tags: :v1.3.0, :latest, :<commit SHA>
+# Week 6: release an image after release-please has created a release (v1.3.0), then deploy it to prod.
+#   build-image   builds the image of the release commit and pushes three tags: :v1.3.0, :latest, :<commit SHA>
 #   call-deploy   calls deploy.yml (workflow_call) with the prod environment
-# Triggers:
-#   push of a tag v*.*.*   -> a tag pushed by a person (git push origin v1.3.0)
-#   workflow_call          -> release_please.yml after release-please has created a release; its tag was created
-#                             with GITHUB_TOKEN, and events caused by GITHUB_TOKEN never start new workflow runs
+# Trigger: only workflow_call from release_please.yml (job release). A release starts only from release-please;
+# its tag is created with GITHUB_TOKEN, and a tag pushed with GITHUB_TOKEN never starts a new workflow run anyway.
 name: release
 
 on:
-  push:
-    tags:
-      - "v*.*.*"
   workflow_call:
     inputs:
       tag:
@@ -360,9 +352,6 @@ permissions:
 jobs:
   build-image:
     runs-on: ubuntu-latest
-    concurrency:
-      group: release-image                      # two releases at once must not race for :latest
-      cancel-in-progress: false
     outputs:
       tag: ${{ steps.image.outputs.tag }}
     steps:
@@ -371,7 +360,7 @@ jobs:
       - name: Name and tag the image
         id: image
         env:
-          TAG: ${{ inputs.tag || github.ref_name }}   # workflow_call: input; tag push: the tag itself
+          TAG: ${{ inputs.tag }}                       # tag_name from release-please, e.g. v1.3.0
         run: |
           if [ "$TAG" != "v$(cat version.txt)" ]; then
             echo "::error::Tag $TAG does not match version.txt ($(cat version.txt))"
@@ -427,7 +416,7 @@ jobs:
 - **Provjera verzije:** tag mora odgovarati `version.txt`; inače bi slika `:v1.3.0` ispisivala `llm 1.2.0`.
 - **`call-deploy`** nema `runs-on` ni `steps`: cijeli job je poziv `deploy.yml` s `environment: prod`. Nema ni vlastitih `permissions`: pozvani workflow dobiva token pozivatelja, a `packages: write` na razini `release.yml` pokriva i `deploy.yml` (pozvani workflow ne smije tražiti više dopuštenja od pozivatelja).
 
-Zašto i `workflow_call`? Tag `vX.Y.Z` stvara release-please s `GITHUB_TOKEN`om, a **događaji koje izazove `GITHUB_TOKEN` ne pokreću nove workflowe** (zaštita od beskonačnih petlji). Tag bi nastao, a `release.yml` se ne bi pokrenuo. Zato `release_please.yml` dobiva job koji ga pozove sam kad je izdanje stvoreno. Zamijeniti `.github/workflows/release_please.yml`:
+Zašto samo `workflow_call`, a ne `push: tags`? Izdanje nastaje samo kroz release-please, a ne ručnim tagom. Uz to, tag `vX.Y.Z` stvara release-please s `GITHUB_TOKEN`om, a **push i tag koje napravi `GITHUB_TOKEN` ne pokreću nove workflowe** (zaštita od beskonačnih petlji). Iznimke su `workflow_dispatch`, `repository_dispatch` i pull requestovi: PR koji `GITHUB_TOKEN` otvori ili ažurira dobiva pokretanja, ali ona čekaju odobrenje (vidi release PR niže). Sa `push: tags` tag bi nastao, a `release.yml` se ne bi pokrenuo. Zato `release_please.yml` dobiva job koji ga pozove sam kad je izdanje stvoreno. Zamijeniti `.github/workflows/release_please.yml`:
 ```yaml
 name: release-please
 
@@ -463,7 +452,8 @@ jobs:
           release-type: simple
 
   # Week 6: the tag that release-please creates with GITHUB_TOKEN does not start release.yml
-  # (events caused by GITHUB_TOKEN never start new workflow runs), so we call it ourselves.
+  # (pushes and tags made with GITHUB_TOKEN start no workflows; only its pull requests get runs,
+  # and those wait for approval), so we call it ourselves.
   release:
     needs: release-please
     if: needs.release-please.outputs.release_created == 'true'
@@ -471,22 +461,24 @@ jobs:
     with:
       tag: ${{ needs.release-please.outputs.tag_name }}
 ```
-U tom slučaju `github.ref` je `refs/heads/main` (pokrenuo ga je push na `main`), a ne tag. Zato okruženje `prod` dopušta i granu `main`, a `release.yml` tag čita iz ulaza `inputs.tag`.
+`github.ref` je pritom `refs/heads/main` (pokrenuo ga je push na `main`), a ne tag. Zato okruženje `prod` dopušta granu `main`, a `release.yml` tag čita iz ulaza `inputs.tag`.
 
 ### 3.2 Izdanje
 Release-please povećava verziju samo za `feat` i `fix`, a današnje promjene su u CI-u. Verziju zato tražimo izričito podnožjem `Release-As:` u zadnjem commitu. Sljedeća minor verzija: ako `version.txt` sadrži `1.2.0`, piše se `1.3.0`.
 ```bash
 cat version.txt
 git add .github/workflows/release.yml .github/workflows/release_please.yml
-git commit -m "<type>: add release workflow" -m "Release-As: X.Y.0"
+git commit -m "<type>: add release workflow" -m "Release-As: 2.0.0"
 git push
 gh pr checks --watch                      # three required checks, green
 gh pr merge --merge                       # main accepts only PRs (ruleset); merge commit, as agreed
 ```
-Nakon spajanja `release_please.yml` otvara (ili ažurira) release PR `chore(main): release X.Y.0`. Njega je otvorio `GITHUB_TOKEN`, pa `ci` na njemu ne krene; spaja se preko bypassa iz tjedna 5:
+Nakon spajanja `release_please.yml` otvara (ili ažurira) release PR `chore(main): release 2.0.0`. Njega je otvorio `GITHUB_TOKEN`, pa se `ci` na njemu pokrene, ali čeka odobrenje: na stranici PR-a kliknuti **Approve workflows to run** (treba pravo pisanja u repozitorij). Nakon toga tri obavezne provjere rade kao na svakom PR-u:
 ```bash
 gh pr list                                # chore(main): release X.Y.0
-gh pr merge <number> --merge --admin
+gh pr view <number> --web                 # Approve workflows to run
+gh pr checks <number> --watch             # three required checks, green
+gh pr merge <number> --merge
 gh run list --workflow release_please.yml
 gh run watch
 ```
@@ -511,7 +503,7 @@ docker run --rm "$IMAGE:latest" --version # llm X.Y.0
 ---
 
 ## Predaja
-Spojen PR iz `feature/cicd` s odgovorima na pitanja 1 i 2 u opisu. Nastavnik provjerava kriterije 1–7 na kartici *Actions*, u *Packages*, *Settings → Environments* i *Settings → Rules*.
+Spojen PR iz `feature/cicd`. Nastavnik provjerava kriterije 1–7 na kartici *Actions*, u *Packages*, *Settings → Environments* i *Settings → Rules*.
 
 ## Česti problemi
 | Simptom | Rješenje |
@@ -523,7 +515,7 @@ Spojen PR iz `feature/cicd` s odgovorima na pitanja 1 i 2 u opisu. Nastavnik pro
 | `deploy`: `Branch "feature/cicd" is not allowed to deploy to dev due to environment protection rules` | Očekivano: u `dev` smije samo grana `dev`. Pushati na `dev` (`git push origin HEAD:dev`) |
 | `deploy` je *skipped* nakon poziva iz `release.yml` | Nedostaje `if: ${{ !failure() && !cancelled() }}` na jobu `deploy` |
 | `release.yml` ili `release_please.yml`: `The nested job 'build-image' is requesting 'packages: write', but is only allowed 'packages: none'` | Pozivatelj (`release.yml`, `release_please.yml`) mora na razini workflowa imati `packages: write`; inače pozvani workflow ne smije tražiti to dopuštenje |
-| `Tag vX.Y.Z does not match version.txt` | Tag je ručno stvoren na commitu bez nove verzije; izdanje ide kroz release-please (korak 3.2) |
+| `Tag vX.Y.Z does not match version.txt` | `version.txt` na `main` je ručno mijenjan pa se ne slaže s izdanjem; verziju mijenja samo release-please (korak 3.2) |
 | Release PR se ne pojavljuje | Podnožje mora biti odvojeni odlomak commita (`-m "..." -m "Release-As: X.Y.0"`), točno tim imenom i s ispravnom verzijom |
 | Spojen release PR, a `release.yml` se ne pokreće | U `release_please.yml` nedostaje job `release` (most) ili `id: release` na koraku release-please |
 | `git push` u `main`: `GH013: Repository rule violations found` | Očekivano: promjene idu kroz PR (`gh pr merge`) |
